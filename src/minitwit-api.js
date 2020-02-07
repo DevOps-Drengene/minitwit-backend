@@ -82,12 +82,49 @@ app.post('/register', async (req, res) => {
       res.status(204).send();
 })
 
-app.get('/msgs', (req, res) => {
-  getUserId('emil');
+app.get('/msgs', async (req, res) => {
+  updateLatest(req);
+
+  let noMsgs = req.body.no ? req.body.no : 100
+  
+  let result = await new Promise((resolve, reject) => {
+    db.all(
+      `SELECT message.text as content, user.username as user, message.pub_date
+       FROM message, user
+       WHERE message.flagged = 0 AND message.author_id = user.user_id
+       ORDER BY message.pub_date DESC LIMIT ?`,
+      [noMsgs],
+      (err, rows) => {
+          if (err)
+              reject(err.message)
+          resolve(rows)
+      })
+  })
+  res.send(result)
 })
 
-app.get('/msgs/:username', (req, res) => {
+app.get('/msgs/:username', async (req, res) => {
+  updateLatest(req);
 
+  let noMsgs = req.body.no ? req.body.no : 100
+  let userId = await getUserId(req.params.username)
+
+  let result = await new Promise((resolve, reject) => {
+    db.all(
+      `SELECT message.text as content, user.username as user, message.pub_date
+       FROM message, user
+       WHERE message.flagged = 0 AND
+       user.user_id = message.author_id AND user.user_id = ?
+       ORDER BY message.pub_date DESC LIMIT ?`,
+      [userId, noMsgs],
+      (err, rows) => {
+          if (err)
+              reject(err.message)
+          resolve(rows)
+      })
+  })
+  
+  res.send(result)
 })
 
 app.post('/msgs/:username', (req, res) => {
