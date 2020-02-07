@@ -107,7 +107,13 @@ app.get('/msgs/:username', async (req, res) => {
   updateLatest(req);
 
   let noMsgs = req.body.no ? req.body.no : 100
-  let userId = await getUserId(req.params.username)
+  let userId
+
+  try {
+    userId = await getUserId(req.params.username)
+  } catch (err) {
+    res.status(404).send()
+  }
 
   let result = await new Promise((resolve, reject) => {
     db.all(
@@ -127,8 +133,25 @@ app.get('/msgs/:username', async (req, res) => {
   res.send(result)
 })
 
-app.post('/msgs/:username', (req, res) => {
+app.post('/msgs/:username', async (req, res) => {
+    updateLatest(req)
+    
+    let userId
 
+    try {
+        userId = await getUserId(req.params.username)
+    } catch (err) {
+        res.status(404).send()
+    }
+
+    db.run(`
+        INSERT INTO message (author_id, text, pub_date, flagged)
+        VALUES (?, ?, ?, 0)`, [
+            userId,
+            req.body.content,
+            Date.now()
+        ])
+    res.status(204).send()
 })
 
 app.get('/fllws/:username', (req, res) => {
