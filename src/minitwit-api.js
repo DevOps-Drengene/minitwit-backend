@@ -33,7 +33,8 @@ let getUserId = username => {
         if (row)
           resolve(row.user_id)
         reject('no user found by the given name')
-      })
+      }
+    )
   })
 }
 
