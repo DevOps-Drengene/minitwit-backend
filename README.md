@@ -8,7 +8,7 @@ Re-implemented in Nodejs, the dull choice for backend.
 
 1. Make `control.sh` executeable:
 
-2. ```shell
+   ```shell
    chmod 755 control.sh
    ```
 
@@ -20,7 +20,7 @@ Re-implemented in Nodejs, the dull choice for backend.
 
 3. Initialize database
 
-4. ```bash
+   ```bash
    ./control.sh init
    ```
 
