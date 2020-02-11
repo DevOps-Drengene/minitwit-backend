@@ -19,26 +19,50 @@ async function getUserId(username) {
   }
 }
 
-app.get('/', async (req, res) => {
-  try {
-    // numMessages defaults to 50
-    const { currentUserId, numMessages = 50 } = req.body;
+app.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
 
-    if (!currentUserId) {
-      return res.status(400).send('You have to provide a userId.');
+  const usernameExists = !!(await getUserId(username));
+
+  let error;
+  if (!username) error = 'You have to enter a username';
+  else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
+  else if (!password) error = 'You have to enter a password';
+  else if (usernameExists) error = 'The username is already taken';
+
+  if (error) {
+    return res.status(400).send({ error_msg: error, status: 400 });
+  }
+
+  const insertQuery = `
+    INSERT INTO user (username, email, pw_hash)
+    VALUES (?, ?, ?)
+  `;
+  const hash = await bcrypt.hash(password, 10);
+  await db.run(insertQuery, [username, email, hash]);
+  return res.status(201).send();
+});
+
+app.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const userQuery = `
+      SELECT * FROM user WHERE username = ?
+    `;
+    const user = await db.get(userQuery, [username]);
+    if (!user) {
+      return res.status(404).send('User not found');
     }
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
-        user.user_id = ? OR
-        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
+    const match = await bcrypt.compare(password, user.pw_hash);
 
-    const messages = await db.all(messagesQuery, [currentUserId, currentUserId, numMessages]);
-    return res.send(messages);
+    if (!match) {
+      return res.status(400).send('That did not work. Try again.');
+    }
+
+    // cut out the pw_hash
+    return res.send({ userId: user.user_id, username: user.username, email: user.email });
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -56,6 +80,28 @@ app.get('/public', async (req, res) => {
     `;
 
     const messages = await db.all(messagesQuery, [numMessages]);
+    return res.send(messages);
+  } catch (err) {
+    return res.status(500).send(err.message);
+  }
+});
+
+app.get('/timeline/:userId', async (req, res) => {
+  try {
+    // numMessages defaults to 50
+    const { numMessages = 50 } = req.body;
+    const { userId } = req.params;
+
+    const messagesQuery = `
+      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
+      FROM message, user
+      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
+        user.user_id = ? OR
+        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
+      ORDER BY message.pub_date DESC LIMIT ?
+    `;
+
+    const messages = await db.all(messagesQuery, [userId, userId, numMessages]);
     return res.send(messages);
   } catch (err) {
     return res.status(500).send(err.message);
@@ -150,7 +196,7 @@ app.post('/:username/unfollow', async (req, res) => {
 
 app.post('/add_message', async (req, res) => {
   try {
-    const { currentUserId, message } = req.body;
+    const { currentUserId, newMessage } = req.body;
 
     if (!currentUserId) {
       return res.status(401).send('Please provide a userId');
@@ -161,61 +207,23 @@ app.post('/add_message', async (req, res) => {
       VALUES (?, ?, ?, 0)
     `;
 
-    await db.run(insertQuery, [currentUserId, message, Date.now()]);
+    await db.run(insertQuery, [currentUserId, newMessage, Date.now()]);
 
-    return res.status(201).send();
-  } catch (err) {
-    return res.status(500).send(err.message);
-  }
-});
-
-app.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    const userQuery = `
-      SELECT * FROM user WHERE username = ?
+    const messagesQuery = `
+      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
+      FROM message, user
+      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
+        user.user_id = ? OR
+        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
+      ORDER BY message.pub_date DESC
     `;
-    const user = await db.get(userQuery, [username]);
-    if (!user) {
-      return res.status(404).send('User not found');
-    }
 
-    const match = await bcrypt.compare(password, user.pw_hash);
+    const messages = await db.all(messagesQuery, [currentUserId, currentUserId]);
 
-    if (!match) {
-      return res.status(400).send('That did not work. Try again.');
-    }
-
-    // cut out the pw_hash
-    return res.send({ userId: user.user_id, username: user.username, email: user.email });
+    return res.status(201).send(messages);
   } catch (err) {
     return res.status(500).send(err.message);
   }
-});
-
-app.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
-
-  const usernameExists = !!(await getUserId(username));
-
-  let error;
-  if (!username) error = 'You have to enter a username';
-  else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
-  else if (!password) error = 'You have to enter a password';
-  else if (usernameExists) error = 'The username is already taken';
-
-  if (error) {
-    return res.status(400).send({ error_msg: error, status: 400 });
-  }
-
-  const insertQuery = `
-    INSERT INTO user (username, email, pw_hash)
-    VALUES (?, ?, ?)
-  `;
-  const hash = await bcrypt.hash(password, 10);
-  await db.run(insertQuery, [username, email, hash]);
-  return res.status(201).send();
 });
 
 app.listen(port, () => {
