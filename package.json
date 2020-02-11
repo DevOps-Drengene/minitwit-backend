@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node src/minitwit-api.js",
-    "simulator": "node src/simulator-api.js"
+    "start": "node src/web-api.js",
+    "simulator": "node src/minitwit-api.js"
   },
   "repository": {
     "type": "git",
