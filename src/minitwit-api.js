@@ -73,9 +73,11 @@ app.post('/register', async (req, res) => {
   else if (usernameExists)
     error = 'The username is already taken'
   else {
-    db.run(`
-      INSERT INTO user (username, email, pw_hash)
-      VALUES (?, ?, ?)`, [
+    db.run(
+      `
+        INSERT INTO user (username, email, pw_hash)
+        VALUES (?, ?, ?)
+      `, [
         username,
         email,
         generatePasswordHash(pwd)
@@ -96,11 +98,13 @@ app.get('/msgs', async (req, res) => {
     let noMsgs = req.body.no || 100
   
     let result = await new Promise((resolve, reject) => {
-      db.all(`
-        SELECT message.text as content, user.username as user, message.pub_date
-        FROM message, user
-        WHERE message.flagged = 0 AND message.author_id = user.user_id
-        ORDER BY message.pub_date DESC LIMIT ?`,
+      db.all(
+        `
+          SELECT message.text as content, user.username as user, message.pub_date
+          FROM message, user
+          WHERE message.flagged = 0 AND message.author_id = user.user_id
+          ORDER BY message.pub_date DESC LIMIT ?
+        `,
         [noMsgs],
         (err, rows) => {
           if (err)
@@ -123,12 +127,14 @@ app.get('/msgs/:username', async (req, res) => {
     let userId = await getUserId(req.params.username)
 
     let result = await new Promise((resolve, reject) => {
-      db.all(`
-        SELECT message.text as content, user.username as user, message.pub_date
-        FROM message, user
-        WHERE message.flagged = 0 AND
-        user.user_id = message.author_id AND user.user_id = ?
-        ORDER BY message.pub_date DESC LIMIT ?`,
+      db.all(
+        `
+          SELECT message.text as content, user.username as user, message.pub_date
+          FROM message, user
+          WHERE message.flagged = 0 AND
+          user.user_id = message.author_id AND user.user_id = ?
+          ORDER BY message.pub_date DESC LIMIT ?
+        `,
         [userId, noMsgs],
         (err, rows) => {
           if (err)
@@ -149,9 +155,11 @@ app.post('/msgs/:username', async (req, res) => {
 
     let userId = await getUserId(req.params.username)
 
-    db.run(`
-      INSERT INTO message (author_id, text, pub_date, flagged)
-      VALUES (?, ?, ?, 0)`, [
+    db.run(
+      `
+        INSERT INTO message (author_id, text, pub_date, flagged)
+        VALUES (?, ?, ?, 0)
+      `, [
         userId,
         req.body.content,
         Date.now()
@@ -174,11 +182,13 @@ app.get('/fllws/:username', async (req, res) => {
     let noFollowers = req.body.no || 100
   
     let result = await new Promise((resolve, reject) => {
-      db.all(`
-        SELECT user.username FROM user
-        INNER JOIN follower ON follower.whom_id=user.user_id
-        WHERE follower.who_id=?
-        LIMIT ?`,
+      db.all(
+        `
+          SELECT user.username FROM user
+          INNER JOIN follower ON follower.whom_id=user.user_id
+          WHERE follower.who_id=?
+          LIMIT ?
+        `,
         [userId, noFollowers],
         (err, rows) => {
           if (err)
@@ -203,8 +213,8 @@ app.post('/fllws/:username', async (req, res) => {
     if (req.body.follow) {
       let followUserId = await getUserId(req.body.follow)
 
-      db.run(`
-        INSERT INTO follower (who_id, whom_id) VALUES (?, ?)`,
+      db.run(
+        `INSERT INTO follower (who_id, whom_id) VALUES (?, ?)`,
         [userId, followUserId]
       )
       res.status(204).send()
@@ -212,8 +222,8 @@ app.post('/fllws/:username', async (req, res) => {
     else if (req.body.unfollow) {
       let unfollowUserId = await getUserId(req.body.unfollow)
 
-      db.run(`
-        DELETE FROM follower WHERE who_id=? and WHOM_ID=?`,
+      db.run(
+        `DELETE FROM follower WHERE who_id=? and WHOM_ID=?`,
         [userId, unfollowUserId]
       )
       res.status(204).send()
