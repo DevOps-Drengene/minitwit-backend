@@ -10,14 +10,20 @@ const port = process.env.PORT || 5001
 
 let LATEST = 0
 
-let db = new sqlite3.Database('/tmp/minitwit.db', (err) => {
-  if (err) {
-    console.error(err.message)
-  }
-  console.log('Connected to the minitwit database.')
+let db;
+
+// Being run before each request
+app.use((_req, _res, next) => {
+  db = new sqlite3.Database('/tmp/minitwit.db', sqlite3.OPEN_READWRITE, (err) => {
+    if (err)
+      console.error(err.message)
+  })
+
+  // Pass on to new handler
+  next()
 })
 
-let updateLatest = req => LATEST = req.body.latest || LATEST
+let updateLatest = req => LATEST = parseInt(req.query.latest) || LATEST
 
 //advanced cryptography
 let generatePasswordHash = pwd => 'hashed ' + pwd
@@ -196,7 +202,7 @@ app.get('/fllws/:username', async (req, res) => {
           resolve(rows)
         })
       })
-    res.send({ follows: result })
+    res.send({ follows: result.map(user => user.username) })
   } catch(err) {
     res.status(404).send(err.message)
   }
