@@ -20,27 +20,33 @@ async function getUserId(username) {
 }
 
 app.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
+  try {
+    const { username, email, password } = req.body;
 
-  const usernameExists = !!(await getUserId(username));
+    const usernameExists = !!(await getUserId(username));
 
-  let error;
-  if (!username) error = 'You have to enter a username';
-  else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
-  else if (!password) error = 'You have to enter a password';
-  else if (usernameExists) error = 'The username is already taken';
+    let error;
+    if (!username) error = 'You have to enter a username';
+    else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
+    else if (!password) error = 'You have to enter a password';
+    else if (usernameExists) error = 'The username is already taken';
 
-  if (error) {
-    return res.status(400).send({ error_msg: error, status: 400 });
+    if (error) {
+      return res.status(400).send({ error });
+    }
+
+    const insertQuery = `
+      INSERT INTO user (username, email, pw_hash)
+      VALUES (?, ?, ?)
+    `;
+    const hash = await bcrypt.hash(password, 10);
+    await db.run(insertQuery, [username, email, hash]);
+
+    const userId = await getUserId(username);
+    return res.status(201).send(userId);
+  } catch (err) {
+    return res.status(500).send(err);
   }
-
-  const insertQuery = `
-    INSERT INTO user (username, email, pw_hash)
-    VALUES (?, ?, ?)
-  `;
-  const hash = await bcrypt.hash(password, 10);
-  await db.run(insertQuery, [username, email, hash]);
-  return res.status(201).send();
 });
 
 app.post('/login', async (req, res) => {
@@ -52,13 +58,13 @@ app.post('/login', async (req, res) => {
     `;
     const user = await db.get(userQuery, [username]);
     if (!user) {
-      return res.status(404).send('User not found');
+      return res.status(404).send({ error: 'User not found' });
     }
 
     const match = await bcrypt.compare(password, user.pw_hash);
 
     if (!match) {
-      return res.status(400).send('That did not work. Try again.');
+      return res.status(400).send({ error: 'That did not work. Try again.' });
     }
 
     // cut out the pw_hash
@@ -108,10 +114,10 @@ app.get('/timeline/:userId', async (req, res) => {
   }
 });
 
-app.get('/:username', async (req, res) => {
+app.get('/user/:username/:currentUserId?', async (req, res) => {
   try {
-    const { username } = req.params;
-    const { currentUserId, numMessages = 50 } = req.body;
+    const { username, currentUserId } = req.params;
+    const { numMessages = 50 } = req.body;
 
     const profileUserQuery = `
       SELECT user.user_id as userId, user.username, user.email
@@ -121,7 +127,7 @@ app.get('/:username', async (req, res) => {
     const profileUser = await db.get(profileUserQuery, [username]);
 
     if (!profileUser) {
-      return res.status(404).send('User not found');
+      return res.status(404).send({ error: 'User not found' });
     }
 
     const followQuery = `
@@ -129,7 +135,8 @@ app.get('/:username', async (req, res) => {
       WHERE follower.who_id = ? AND follower.whom_id = ?
    `;
 
-    const following = !!(await db.get(followQuery, [currentUserId, profileUser.userId]));
+    const followingRes = await db.get(followQuery, [currentUserId, profileUser.userId]);
+    const following = !!(followingRes);
 
     const messagesQuery = `
       SELECT message.author_id, message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
@@ -152,13 +159,13 @@ app.post('/:username/follow', async (req, res) => {
     const { username } = req.params;
 
     if (!currentUserId) {
-      return res.status(401).send('Please provide a userId');
+      return res.status(401).send({ error: 'currentUserId is missing' });
     }
 
-    const whomId = await getUserId(username);
+    const { userId: whomId } = await getUserId(username);
 
     if (!whomId) {
-      return res.status(404).send('User not found');
+      return res.status(404).send({ error: 'User not found' });
     }
 
     const insertQuery = 'INSERT INTO follower (who_id, whom_id) VALUES (?, ?)';
@@ -176,13 +183,13 @@ app.post('/:username/unfollow', async (req, res) => {
     const { username } = req.params;
 
     if (!currentUserId) {
-      return res.status(401).send('Please provide a userId');
+      return res.status(401).send({ error: 'currentUserId is missing' });
     }
 
-    const whomId = await getUserId(username);
+    const { userId: whomId } = await getUserId(username);
 
     if (!whomId) {
-      return res.status(404).send('User not found');
+      return res.status(404).send({ error: 'User not found' });
     }
 
     const deleteQuery = 'DELETE FROM follower WHERE who_id=? AND whom_id=?';
@@ -199,7 +206,7 @@ app.post('/add_message', async (req, res) => {
     const { currentUserId, newMessage } = req.body;
 
     if (!currentUserId) {
-      return res.status(401).send('Please provide a userId');
+      return res.status(401).send({ error: 'currentUserId is missing' });
     }
 
     const insertQuery = `
