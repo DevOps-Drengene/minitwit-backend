@@ -2,7 +2,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const db = require('./helpers/db');
+const dbHelper = require('./helpers/db');
+
+let db;
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -18,6 +20,14 @@ async function getUserId(username) {
     throw new Error(err);
   }
 }
+
+// Being run before each request
+app.use((_req, _res, next) => {
+  db = new dbHelper();
+
+  // Pass on to new handler
+  next()
+})
 
 app.post('/register', async (req, res) => {
   try {

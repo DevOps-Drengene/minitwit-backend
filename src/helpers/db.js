@@ -47,6 +47,4 @@ class DatabaseHelper {
   }
 }
 
-const db = new DatabaseHelper();
-
-module.exports = db;
+module.exports = DatabaseHelper;
