@@ -9,25 +9,25 @@ Re-implemented in Nodejs, the dull choice for backend.
 1. Make `control.sh` executeable:
 
    ```shell
-   chmod 755 control.sh
+   $ chmod 755 control.sh
    ```
 
 2. Install node dependencies:
 
    ```bash
-   npm install
+   $ npm install
    ```
 
 3. Initialize database
 
    ```bash
-   ./control.sh init
+   $ ./control.sh init
    ```
 
 4. Compile the flag tool:
 
    ```bash
-   make build
+   $ make build
    ```
 
    
@@ -39,7 +39,7 @@ Re-implemented in Nodejs, the dull choice for backend.
 **Start minitwit backend:**
 
 ```shell
-./control.sh start
+$ ./control.sh start
 ```
 
 API endpoint: http://localhost:5001
@@ -49,7 +49,7 @@ API endpoint: http://localhost:5001
 **Stop minitwit backend:**
 
 ```shell
-./control.sh stop
+$ ./control.sh stop
 ```
 
 
@@ -57,7 +57,7 @@ API endpoint: http://localhost:5001
 **Inspect database:**
 
 ```shell
-./control.sh inspectdb
+$ ./control.sh inspectdb
 ```
 
 
@@ -65,14 +65,29 @@ API endpoint: http://localhost:5001
 **Flag message:**
 
 ```bash
-./control.sh flag [message-id]
+$ ./control.sh flag [message-id]
 ```
 
 
 
-## Run tests
+## Setup and run simulator tests
 
-[To be added]
+**Install `pytest` (first time only):**
+```bash
+$ pip install -U pytest
+```
 
+**Install local testing dependencies inside `src` folder (first time only):**
+```bash
+$ pip install requests
+```
 
+**Start simulator REST endpoint in root folder:**
+```bash
+$ npm run simulator
+```
 
+**Start simulator tests inside `src`:**
+```bash
+$ pytest
+```
