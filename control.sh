@@ -5,9 +5,11 @@ if [ "$1" = "init" ]; then
         echo "Database already exists."
         exit 1
     fi
+    cd $(dirname $0)
     echo "Putting a database to /tmp/minitwit.db..."
     node src/init.js
 elif [ "$1" = "start" ]; then
+    cd $(dirname $0)
     echo "Starting minitwit..."
     nohup npm start > /tmp/out.log 2>&1 &
     echo $! > /tmp/minitwit.pid
