@@ -105,3 +105,8 @@ dist
 
 # C debug symbols
 *.dSYM
+
+# Misc
+.DS_Store
+.idea/
+src/__pycache__/

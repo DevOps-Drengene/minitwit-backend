@@ -4,9 +4,9 @@ class DatabaseHelper {
   constructor() {
     this.db = new sqlite3.Database('/tmp/minitwit.db', (err) => {
       if (err) {
-        console.error(err.message)
+        console.error(err.message);
       }
-      console.log('Connected to the minitwit database.')
+      console.log('Connected to the minitwit database.');
     });
   }
 

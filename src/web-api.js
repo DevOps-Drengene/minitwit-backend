@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const dbHelper = require('./helpers/db');
+const DatabaseHelper = require('./helpers/db');
 
 let db;
 
@@ -23,11 +23,11 @@ async function getUserId(username) {
 
 // Being run before each request
 app.use((_req, _res, next) => {
-  db = new dbHelper();
+  db = new DatabaseHelper();
 
   // Pass on to new handler
-  next()
-})
+  next();
+});
 
 app.post('/register', async (req, res) => {
   try {
@@ -52,8 +52,7 @@ app.post('/register', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     await db.run(insertQuery, [username, email, hash]);
 
-    const userId = await getUserId(username);
-    return res.status(201).send(userId);
+    return res.status(204).send();
   } catch (err) {
     return res.status(500).send(err);
   }

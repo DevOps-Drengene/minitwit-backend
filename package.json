@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/web-api.js",
-    "simulator": "node src/minitwit-api.js"
+    "simulator": "node src/minitwit-api.js",
+    "lint": "eslint src/**"
   },
   "repository": {
     "type": "git",
