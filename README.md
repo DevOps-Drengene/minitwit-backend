@@ -1,66 +1,15 @@
 # Minitwit Backend: The DevOps Drengene Flavor
 
-Re-implemented in Nodejs, the dull choice for backend.
-
-
-
-## Initialize Minitwit Backend REST-API
-
-1. Make `control.sh` executeable:
-
-   ```shell
-   $ chmod 755 control.sh
-   ```
-
-2. Install node dependencies:
-
-   ```bash
-   $ npm install
-   ```
-
-3. Initialize database
-
-   ```bash
-   $ ./control.sh init
-   ```
-
-4. Compile the flag tool:
-
-   ```bash
-   $ make build
-   ```
-
-   
-
+Re-implemented in Node.js, the dull choice for backend.
 
 
 ## Using Minitwit Backend (local)
-
-**Start minitwit backend:**
-
-```shell
-$ ./control.sh start
-```
-
-API endpoint: http://localhost:5001
-
-
-
-**Stop minitwit backend:**
-
-```shell
-$ ./control.sh stop
-```
-
-
 
 **Inspect database:**
 
 ```shell
 $ ./control.sh inspectdb
 ```
-
-
 
 **Flag message:**
 
@@ -72,22 +21,20 @@ $ ./control.sh flag [message-id]
 
 ## Setup and run simulator tests
 
-**Install `pytest` (first time only):**
-```bash
-$ pip install -U pytest
-```
+1. Build and run the full Docker setup as described in the root repository to bring up the application.
 
-**Install local testing dependencies inside `src` folder (first time only):**
-```bash
-$ pip install requests
-```
+2. Install `pytest` with the following command (first time only):
 
-**Start simulator REST endpoint in root folder:**
-```bash
-$ npm run simulator
-```
+   ```bash
+   $ pip install -U pytest
+   ```
 
-**Start simulator tests inside `src`:**
-```bash
-$ pytest
-```
+3. Install local testing dependencies inside `src` folder with the following command (first time only):
+   ```bash
+   $ pip install requests
+   ```
+
+4. Start simulator tests inside `src` with the following command:
+   ```bash
+   $ pytest
+   ```
