@@ -2,8 +2,22 @@
 
 Re-implemented in Node.js, the dull choice for backend.
 
-
 ## Using Minitwit Backend (local)
+
+**Compile flag_tool.c:**
+```bash
+$ gcc ./flag_tool.c -o flag_tool -lsqlite3
+```
+
+**Init the Database:**
+```bash
+$ ./control.sh init
+```
+
+**Start the Database:**
+```bash
+$ ./control.sh start
+```
 
 **Inspect database:**
 
