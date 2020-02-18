@@ -25,6 +25,8 @@ module.exports = (sequelize, Sequelize) => {
             type: Sequelize.STRING,
             allowNull: false,
             set(value) {
+                if (!value)
+                    throw new Error('You have to enter a password');
                 //automatic hashing upon creation
                 this.setDataValue('password', require('bcrypt').hashSync(value, 10));
             },

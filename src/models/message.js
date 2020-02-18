@@ -7,7 +7,7 @@ module.exports = (sequelize, Sequelize) => {
         flagged: {
             type: Sequelize.BOOLEAN,
             allowNull: false,
-            default: false
+            defaultValue: false
         }
     });
     return Message;

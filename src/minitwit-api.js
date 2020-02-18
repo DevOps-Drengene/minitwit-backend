@@ -37,18 +37,17 @@ app.get('/latest', (req, res) => res.send({ latest }));
 
 app.post('/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, pwd } = req.body;
 
     updateLatest(req);
 
-    if (await db.user.findOne({ username }))
+    if (await db.user.findOne({ where: { username } }))
       throw new Error('The username is already taken');
 
-    await db.user.create({ username, email, password });
+    await db.user.create({ username, email, password: pwd });
 
     return res.status(204).send();
   } catch (err) {
-    res.status(400);
     return handleError(err, res);
   }
 });
@@ -86,13 +85,13 @@ app.get('/msgs/:username', async (req, res) => {
 
     const { no: noMsgs = 100 } = req.query;
 
-    const user = await db.user.findOne({ username: req.params.username });
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
     if (user === null)
       throw new Error('User not found');
 
     const messages = await user.getMessages({
-      where: { flagged: 0 },
+      where: { flagged: false },
       order: [['createdAt', 'DESC']],
       limit: noMsgs
     }).then(
@@ -116,7 +115,7 @@ app.post('/msgs/:username', async (req, res) => {
     updateLatest(req);
     notReqFromSimulator(req, res);
 
-    const user = await db.user.findOne({ username: req.params.username });
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
     if (user === null)
       throw new Error('User not found');
@@ -136,12 +135,13 @@ app.get('/fllws/:username', async (req, res) => {
 
     const { no: noFollowers = 100 } = req.body;
 
-    const user = await db.user.findOne({ username: req.body.username });
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
     if (user === null)
       throw new Error('User not found');
     
-    const follows = await user.getFollows()
+    const follows = await user.getFollow()
+      //.then(res => console.log(res));
       .then(res => res.map(flw => flw.username));
 
     res.send({ follows });
@@ -155,7 +155,7 @@ app.post('/fllws/:username', async (req, res) => {
     updateLatest(req);
     notReqFromSimulator(req);
 
-    const user = await db.user.findOne({ username: req.body.username });
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
     if (user === null)
       throw new Error('User not found');
@@ -163,7 +163,7 @@ app.post('/fllws/:username', async (req, res) => {
     const keys = Object.keys(req.body);
 
     if (keys.includes('follow')) {
-      const followed = await db.user.findOne({ username: keys.follow });
+      const followed = await db.user.findOne({ where: { username: req.body.follow } });
 
       if (followed === null)
         throw new Error('User not found');
@@ -174,12 +174,12 @@ app.post('/fllws/:username', async (req, res) => {
     }
 
     if (keys.includes('unfollow')) {
-      const unfollowed = await db.user.findOne({ username: keys.unfollow });
+      const unfollowed = await db.user.findOne({ where: { username: req.body.unfollow } });
 
       if (unfollowed === null)
         throw new Error('User not found');
 
-      await db.user.removeFollow(unfollowed);
+      await user.removeFollow(unfollowed);
 
       return res.status(204).send();
     }

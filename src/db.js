@@ -16,7 +16,7 @@ db.message = require('./models/message.js')(sequelize, Sequelize);
 
 db.user.hasMany(db.message);
 db.message.belongsTo(db.user);
-db.user.belongsToMany(db.user, {as: 'follow', through: 'followers'});
+db.user.belongsToMany(db.user, {as: 'Follow', through: 'followers'});
 
 
 module.exports = db;
