@@ -15,7 +15,8 @@ module.exports = (sequelize, Sequelize) => {
             allowNull: false
         },
         pub_date: {
-            type: Sequelize.INTEGER
+            // Note: Has to be BIGINT when using Postgres, as 'INT' is not big enough to hold the value
+            type: Sequelize.BIGINT
         },
         flagged: {
             type: Sequelize.INTEGER

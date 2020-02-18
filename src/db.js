@@ -1,12 +1,10 @@
 const Sequelize = require('sequelize');
-const sequelize = new Sequelize({
-    dialect: 'sqlite',
-    storage: '/tmp/minitwit.db',
-    define: {
-        timestamps: false,
-        freezeTableName: true
-    }
-  });
+const sequelize = new Sequelize(process.env.PSQL_DB_NAME, process.env.PSQL_DB_USER_NAME, process.env.PSQL_DB_USER_PASSWORD, {
+  host: process.env.PSQL_HOST_NAME || 'localhost',
+  dialect: 'postgres',
+  pool: { max: 30 },
+  logging: false
+});
 
 const db = {};
 
@@ -22,6 +20,7 @@ db.user.hasMany(db.follower);
 db.message.belongsTo(db.user, { foreignKey: 'author_id' });
 db.follower.belongsTo(db.user, { foreignKey: 'whom_id' });
 
-sequelize.sync();
-
-module.exports = db;
+module.exports = {
+  db,
+  sequelize
+};

@@ -1,9 +1,9 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
-const DatabaseHelper = require('./helpers/db');
-const database = require('./db');
+const dbUtils = require('./db');
 
+const db = dbUtils.db;
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -12,24 +12,14 @@ const port = process.env.PORT || 5001;
 
 let latest = 0;
 
-let db;
-
-// Being run before each request
-app.use((_req, _res, next) => {
-  db = new DatabaseHelper();
-
-  next();
-});
-
 function updateLatest(req) {
   if (req.query.latest) {
     latest = parseInt(req.query.latest, 10);
-    console.log(`latest updated. now = ${latest}`);
   }
 }
 
 async function getUserId(username, canBeNull = false) {
-  const result = await database.user.findOne({ where: { username } })
+  const result = await db.user.findOne({ where: { username } })
   
   if (!result && !canBeNull) {
     throw new Error('User not found');
@@ -82,7 +72,7 @@ app.post('/register', async (req, res) => {
 
     const hash = await bcrypt.hash(pwd, 10);
 
-    await database.user.create({ username, email, pw_hash: hash });
+    await db.user.create({ username, email, pw_hash: hash });
 
     return res.status(204).send();
   } catch (err) {
@@ -96,8 +86,8 @@ app.get('/msgs', async (req, res) => {
 
     const { no: noMsgs = 100 } = req.query;
 
-    const messages = await database.message.findAll({
-      include: [database.user],
+    const messages = await db.message.findAll({
+      include: [db.user],
       where: {
         flagged: 0
       },
@@ -128,8 +118,8 @@ app.get('/msgs/:username', async (req, res) => {
 
     const userId = await getUserId(req.params.username);
 
-    const messages = await database.message.findAll({
-      include: [database.user],
+    const messages = await db.message.findAll({
+      include: [db.user],
       where: {
         flagged: 0,
         author_id: userId
@@ -160,7 +150,7 @@ app.post('/msgs/:username', async (req, res) => {
 
     const userId = await getUserId(req.params.username);
 
-    await database.message.create({
+    await db.message.create({
       author_id: userId,
       text: req.body.content,
       pub_date: Date.now(),
@@ -182,8 +172,8 @@ app.get('/fllws/:username', async (req, res) => {
 
     const { no: noFollowers = 100 } = req.body;
 
-    const follows = await database.follower.findAll({
-      include: [database.user],
+    const follows = await db.follower.findAll({
+      include: [db.user],
       where: {
         who_id: userId
       },
@@ -208,7 +198,7 @@ app.post('/fllws/:username', async (req, res) => {
     if (keys.includes('follow')) {
       const followUserId = await getUserId(req.body.follow);
 
-      await database.follower.create({ who_id: userId, whom_id: followUserId });
+      await db.follower.create({ who_id: userId, whom_id: followUserId });
 
       return res.status(204).send();
     }
@@ -216,7 +206,7 @@ app.post('/fllws/:username', async (req, res) => {
     if (keys.includes('unfollow')) {
       const unfollowUserId = await getUserId(req.body.unfollow);
 
-      await database.follower.destroy({
+      await db.follower.destroy({
         where: { who_id: userId, whom_id: unfollowUserId }
       });
 
@@ -227,6 +217,9 @@ app.post('/fllws/:username', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server started on port: ${port}`);
+// It will wipe the database upon each startup
+dbUtils.sequelize.sync({ force: true }).then(async () => {
+  app.listen(port, () => {
+    console.log(`Server started on port: ${port}`);
+  });
 });
