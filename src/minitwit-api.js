@@ -1,8 +1,9 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
-const DatabaseHelper = require('./helpers/db');
+const dbUtils = require('./db');
 
+const db = dbUtils.db;
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -11,30 +12,21 @@ const port = process.env.PORT || 5001;
 
 let latest = 0;
 
-let db;
-
-// Being run before each request
-app.use((_req, _res, next) => {
-  db = new DatabaseHelper();
-
-  next();
-});
-
 function updateLatest(req) {
   if (req.query.latest) {
     latest = parseInt(req.query.latest, 10);
-    console.log(`latest updated. now = ${latest}`);
   }
 }
 
 async function getUserId(username, canBeNull = false) {
-  const result = await db.get('SELECT user_id as userId FROM user WHERE username = ?', [username]);
+  const result = await db.user.findOne({ where: { username } })
+  
   if (!result && !canBeNull) {
     throw new Error('User not found');
   }
 
   if (result) {
-    return result.userId;
+    return result.dataValues.user_id;
   }
 
   return null;
@@ -79,13 +71,8 @@ app.post('/register', async (req, res) => {
     }
 
     const hash = await bcrypt.hash(pwd, 10);
-    await db.run(
-      `
-        INSERT INTO user (username, email, pw_hash)
-        VALUES (?, ?, ?)
-      `,
-      [username, email, hash],
-    );
+
+    await db.user.create({ username, email, pw_hash: hash });
 
     return res.status(204).send();
   } catch (err) {
@@ -99,14 +86,22 @@ app.get('/msgs', async (req, res) => {
 
     const { no: noMsgs = 100 } = req.query;
 
-    const messages = await db.all(
-      `
-        SELECT message.text as content, user.username as user, message.pub_date
-        FROM message, user
-        WHERE message.flagged = 0 AND message.author_id = user.user_id
-        ORDER BY message.pub_date DESC LIMIT ?
-      `,
-      [noMsgs],
+    const messages = await db.message.findAll({
+      include: [db.user],
+      where: {
+        flagged: 0
+      },
+      attributes: ['text', 'pub_date'],
+      order: [['pub_date', 'DESC']],
+      limit: noMsgs
+    }).then(
+      res => res.map(msg => {
+        return {
+          content: msg.text,
+          pub_date: msg.pub_date,
+          user: msg.user.username
+        };
+      })
     );
 
     return res.send(messages);
@@ -123,15 +118,23 @@ app.get('/msgs/:username', async (req, res) => {
 
     const userId = await getUserId(req.params.username);
 
-    const messages = await db.all(
-      `
-        SELECT message.text as content, user.username as user, message.pub_date
-        FROM message, user
-        WHERE message.flagged = 0 AND
-        user.user_id = message.author_id AND user.user_id = ?
-        ORDER BY message.pub_date DESC LIMIT ?
-        `,
-      [userId, noMsgs],
+    const messages = await db.message.findAll({
+      include: [db.user],
+      where: {
+        flagged: 0,
+        author_id: userId
+      },
+      attributes: ['text', 'pub_date'],
+      order: [['pub_date', 'DESC']],
+      limit: noMsgs
+    }).then(
+      res => res.map(msg => {
+        return {
+          content: msg.text,
+          pub_date: msg.pub_date,
+          user: msg.user.username
+        };
+      })
     );
 
     return res.send(messages);
@@ -147,16 +150,12 @@ app.post('/msgs/:username', async (req, res) => {
 
     const userId = await getUserId(req.params.username);
 
-    await db.run(
-      `
-        INSERT INTO message (author_id, text, pub_date, flagged)
-        VALUES (?, ?, ?, 0)
-      `, [
-        userId,
-        req.body.content,
-        Date.now(),
-      ],
-    );
+    await db.message.create({
+      author_id: userId,
+      text: req.body.content,
+      pub_date: Date.now(),
+      flagged: 0
+    });
 
     return res.status(204).send();
   } catch (err) {
@@ -173,17 +172,15 @@ app.get('/fllws/:username', async (req, res) => {
 
     const { no: noFollowers = 100 } = req.body;
 
-    const result = await db.all(
-      `
-        SELECT user.username FROM user
-        INNER JOIN follower ON follower.whom_id=user.user_id
-        WHERE follower.who_id=?
-        LIMIT ?
-      `,
-      [userId, noFollowers],
-    );
+    const follows = await db.follower.findAll({
+      include: [db.user],
+      where: {
+        who_id: userId
+      },
+      attributes: ['whom_id']
+    });
 
-    res.send({ follows: result.map((user) => user.username) });
+    res.send({ follows: follows.map((flw) => flw.user.username) });
   } catch (err) {
     return handleError(err, res);
   }
@@ -201,10 +198,7 @@ app.post('/fllws/:username', async (req, res) => {
     if (keys.includes('follow')) {
       const followUserId = await getUserId(req.body.follow);
 
-      await db.run(
-        'INSERT INTO follower (who_id, whom_id) VALUES (?, ?)',
-        [userId, followUserId],
-      );
+      await db.follower.create({ who_id: userId, whom_id: followUserId });
 
       return res.status(204).send();
     }
@@ -212,10 +206,9 @@ app.post('/fllws/:username', async (req, res) => {
     if (keys.includes('unfollow')) {
       const unfollowUserId = await getUserId(req.body.unfollow);
 
-      await db.run(
-        'DELETE FROM follower WHERE who_id=? and WHOM_ID=?',
-        [userId, unfollowUserId],
-      );
+      await db.follower.destroy({
+        where: { who_id: userId, whom_id: unfollowUserId }
+      });
 
       return res.status(204).send();
     }
@@ -224,6 +217,9 @@ app.post('/fllws/:username', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server started on port: ${port}`);
+// It will wipe the database upon each startup
+dbUtils.sequelize.sync({ force: true }).then(async () => {
+  app.listen(port, () => {
+    console.log(`Server started on port: ${port}`);
+  });
 });
