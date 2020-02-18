@@ -1,23 +1,39 @@
 module.exports = (sequelize, Sequelize) => {
     const User = sequelize.define('user', {
-        user_id: {
-            type: Sequelize.INTEGER,
-            primaryKey: true,
-            autoIncrement: true,
-            allowNull: false 
-        },
         username: {
             type: Sequelize.STRING,
+            unique: true,
             allowNull: false,
-            unique: true
+            validate: {
+                notNull(value) {
+                    if (value === null)
+                        throw new Error('You have to enter a username');
+                }
+            }
         },
         email: {
             type: Sequelize.STRING,
-            allowNull: false
+            allowNull: false,
+            validate: {
+                containsAtSignAndNotNull(value) {
+                    if (value === null || !value.includes('@'))
+                        throw new Error('You have to enter a valid email address');
+                }
+            }
         },
-        pw_hash: {
+        password: {
             type: Sequelize.STRING,
-            allowNull: false
+            allowNull: false,
+            set(value) {
+                //automatic hashing upon creation
+                this.setDataValue('password', require('bcrypt').hashSync(value, 10));
+            },
+            validate: {
+                notNull(value) {
+                    if (value === null)
+                        throw new Error('You have to enter a password');
+                }
+            }
         }
     });
     return User;
