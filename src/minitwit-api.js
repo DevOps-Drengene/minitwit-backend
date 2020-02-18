@@ -140,8 +140,7 @@ app.get('/fllws/:username', async (req, res) => {
     if (user === null)
       throw new Error('User not found');
     
-    const follows = await user.getFollow()
-      //.then(res => console.log(res));
+    const follows = await user.getFollow({ limit: noFollowers })
       .then(res => res.map(flw => flw.username));
 
     res.send({ follows });
