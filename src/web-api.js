@@ -98,25 +98,31 @@ app.get('/timeline/:userId', async (req, res) => {
     const { numMessages = 50 } = req.body;
     const { userId } = req.params;
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
-        user.user_id = ? OR
-        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
-
     const user = await db.user.findByPk(userId);
 
-    const messages = await user.getMessages({
-      where: { flagged: false },
+    const messages = await db.message.findAll({
+      where: {
+        flagged: false,
+        [db.Sequelize.Op.or]: [
+          { userId: await user.getFollow().map(flw => flw.id) },
+          { userId: user.id }
+        ]
+      },
       limit: numMessages,
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
     });
 
-    const messages = await db.all(messagesQuery, [userId, userId, numMessages]);
-    return res.send(messages);
+    return res.send(messages.map(msg =>
+      {
+        return {
+          text: msg.text,
+          pubDate: msg.createdAt,
+          userId: msg.user.id,
+          username: msg.user.username,
+          email: msg.user.email
+        }
+      }
+    ));
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -132,18 +138,17 @@ app.get('/user/:username/:currentUserId?', async (req, res) => {
       FROM user WHERE username = ?
     `;
 
-    const profileUser = await db.get(profileUserQuery, [username]);
+    const profileUser = await db.user.findOne({ where: { username } });
 
-    if (!profileUser) {
+    if (!profileUser)
       return res.status(404).send({ error: 'User not found' });
-    }
 
     const followQuery = `
       SELECT 1 FROM follower
       WHERE follower.who_id = ? AND follower.whom_id = ?
    `;
 
-    const followingRes = await db.get(followQuery, [currentUserId, profileUser.userId]);
+    const followingRes = await profileUser.getFollow({ where: { id: userId } });
     const following = !!(followingRes);
 
     const messagesQuery = `
@@ -153,9 +158,16 @@ app.get('/user/:username/:currentUserId?', async (req, res) => {
       ORDER BY message.pub_date DESC LIMIT ?
     `;
 
-    const messages = await db.all(messagesQuery, [profileUser.userId, numMessages]);
+    const messages = await profileUser.getMessages({
+      order: [['createdAt', 'DESC']],
+      limit: numMessages
+    });
 
-    return res.send({ profileUser, following, messages });
+    return res.send({
+      profileUser,
+      following,
+      messages
+    });
   } catch (err) {
     return res.status(500).send(err.message);
   }
