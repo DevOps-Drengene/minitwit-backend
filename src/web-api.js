@@ -11,28 +11,18 @@ app.use(cors());
 
 const port = process.env.PORT || 5001;
 
-/*
-// Being run before each request
-app.use((_req, _res, next) => {
-  db = new DatabaseHelper();
-
-  // Pass on to new handler
-  next();
-});
-*/
-
 app.post('/register', async (req, res) => {
   try {
-    const { username, email, pwd } = req.body;
+    const { username, email, password } = req.body;
 
     if (await db.user.findOne({ where: { username } }))
-      throw new Error('The username is already taken');
+      return res.status(400).send({ error: 'The username is already taken' });
 
-    await db.user.create({ username, email, password: pwd });
+    await db.user.create({ username, email, password });
 
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).send(err.message);
+    return res.status(400).send({ error: err.message });
   }
 });
 
@@ -43,7 +33,7 @@ app.post('/login', async (req, res) => {
     const user = await db.user.findOne({ where: { username } })
       
     if (!user)
-      throw new Error('The username is already taken');
+      return res.status(400).send({ error: 'Unknown user' });
 
     const match = await bcrypt.compare(password, user.password);
 
