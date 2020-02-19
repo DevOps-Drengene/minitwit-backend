@@ -2,9 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const DatabaseHelper = require('./helpers/db');
-
-let db;
+const db = require('./db');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -31,30 +29,18 @@ app.use((_req, _res, next) => {
 
 app.post('/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, pwd } = req.body;
 
-    const usernameExists = !!(await getUserId(username));
+    updateLatest(req);
 
-    let error;
-    if (!username) error = 'You have to enter a username';
-    else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
-    else if (!password) error = 'You have to enter a password';
-    else if (usernameExists) error = 'The username is already taken';
+    if (await db.user.findOne({ where: { username } }))
+      throw new Error('The username is already taken');
 
-    if (error) {
-      return res.status(400).send({ error });
-    }
-
-    const insertQuery = `
-      INSERT INTO user (username, email, pw_hash)
-      VALUES (?, ?, ?)
-    `;
-    const hash = await bcrypt.hash(password, 10);
-    await db.run(insertQuery, [username, email, hash]);
+    await db.user.create({ username, email, password: pwd });
 
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).send(err);
+    return handleError(err, res);
   }
 });
 
@@ -62,22 +48,18 @@ app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const userQuery = `
-      SELECT * FROM user WHERE username = ?
-    `;
-    const user = await db.get(userQuery, [username]);
-    if (!user) {
-      return res.status(404).send({ error: 'User not found' });
-    }
+    const user = await db.user.findOne({ where: { username } })
+      
+    if (!user)
+      throw new Error('The username is already taken');
 
-    const match = await bcrypt.compare(password, user.pw_hash);
+    const match = await bcrypt.compare(password, user.password);
 
-    if (!match) {
+    if (!match)
       return res.status(400).send({ error: 'That did not work. Try again.' });
-    }
 
-    // cut out the pw_hash
-    return res.send({ userId: user.user_id, username: user.username, email: user.email });
+    // cut out the password
+    return res.send({ userId: user.id, username: user.username, email: user.email });
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -87,15 +69,24 @@ app.get('/public', async (req, res) => {
   try {
     const { numMessages = 50 } = req.body;
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
+    const messages = await db.messages.findAll({
+      where: { flagged: false },
+      order: [['createdAt', 'DESC']],
+      limit: numMessages,
+      include: [db.user]
+    });
 
-    const messages = await db.all(messagesQuery, [numMessages]);
-    return res.send(messages);
+    return res.send(messages.map(msg =>
+      {
+        return {
+          text: msg.text,
+          pubDate: msg.createdAt,
+          userId: msg.user.id,
+          username: msg.user.username,
+          email: msg.user.email
+        }
+      }
+    ));
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -115,6 +106,14 @@ app.get('/timeline/:userId', async (req, res) => {
         user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
       ORDER BY message.pub_date DESC LIMIT ?
     `;
+
+    const user = await db.user.findByPk(userId);
+
+    const messages = await user.getMessages({
+      where: { flagged: false },
+      limit: numMessages,
+      order: [['createdAt', 'DESC']]
+    });
 
     const messages = await db.all(messagesQuery, [userId, userId, numMessages]);
     return res.send(messages);
