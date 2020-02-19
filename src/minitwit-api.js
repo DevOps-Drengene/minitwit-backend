@@ -1,9 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const bcrypt = require('bcrypt');
-const dbUtils = require('./db');
-
-const db = dbUtils.db;
+const db = require('./db');
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -16,20 +13,6 @@ function updateLatest(req) {
   if (req.query.latest) {
     latest = parseInt(req.query.latest, 10);
   }
-}
-
-async function getUserId(username, canBeNull = false) {
-  const result = await db.user.findOne({ where: { username } })
-  
-  if (!result && !canBeNull) {
-    throw new Error('User not found');
-  }
-
-  if (result) {
-    return result.dataValues.user_id;
-  }
-
-  return null;
 }
 
 function handleError(err, res) {
@@ -58,21 +41,10 @@ app.post('/register', async (req, res) => {
 
     updateLatest(req);
 
-    const userId = await getUserId(username, true);
+    if (await db.user.findOne({ where: { username } }))
+      throw new Error('The username is already taken');
 
-    let error;
-    if (!username) error = 'You have to enter a username';
-    else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
-    else if (!pwd) error = 'You have to enter a password';
-    else if (userId) error = 'The username is already taken';
-
-    if (error) {
-      return res.status(400).send({ error });
-    }
-
-    const hash = await bcrypt.hash(pwd, 10);
-
-    await db.user.create({ username, email, pw_hash: hash });
+    await db.user.create({ username, email, password: pwd });
 
     return res.status(204).send();
   } catch (err) {
@@ -88,17 +60,14 @@ app.get('/msgs', async (req, res) => {
 
     const messages = await db.message.findAll({
       include: [db.user],
-      where: {
-        flagged: 0
-      },
-      attributes: ['text', 'pub_date'],
-      order: [['pub_date', 'DESC']],
+      where: { flagged: false },
+      order: [['createdAt', 'DESC']],
       limit: noMsgs
     }).then(
       res => res.map(msg => {
         return {
           content: msg.text,
-          pub_date: msg.pub_date,
+          pub_date: msg.createdAt,
           user: msg.user.username
         };
       })
@@ -116,23 +85,21 @@ app.get('/msgs/:username', async (req, res) => {
 
     const { no: noMsgs = 100 } = req.query;
 
-    const userId = await getUserId(req.params.username);
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
-    const messages = await db.message.findAll({
-      include: [db.user],
-      where: {
-        flagged: 0,
-        author_id: userId
-      },
-      attributes: ['text', 'pub_date'],
-      order: [['pub_date', 'DESC']],
+    if (user === null)
+      throw new Error('User not found');
+
+    const messages = await user.getMessages({
+      where: { flagged: false },
+      order: [['createdAt', 'DESC']],
       limit: noMsgs
     }).then(
       res => res.map(msg => {
         return {
           content: msg.text,
-          pub_date: msg.pub_date,
-          user: msg.user.username
+          pub_date: msg.createdAt,
+          user: user.username
         };
       })
     );
@@ -148,14 +115,12 @@ app.post('/msgs/:username', async (req, res) => {
     updateLatest(req);
     notReqFromSimulator(req, res);
 
-    const userId = await getUserId(req.params.username);
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
-    await db.message.create({
-      author_id: userId,
-      text: req.body.content,
-      pub_date: Date.now(),
-      flagged: 0
-    });
+    if (user === null)
+      throw new Error('User not found');
+
+    await user.createMessage({ text: req.body.content });
 
     return res.status(204).send();
   } catch (err) {
@@ -168,19 +133,17 @@ app.get('/fllws/:username', async (req, res) => {
     updateLatest(req);
     notReqFromSimulator(req);
 
-    const userId = await getUserId(req.params.username);
-
     const { no: noFollowers = 100 } = req.body;
 
-    const follows = await db.follower.findAll({
-      include: [db.user],
-      where: {
-        who_id: userId
-      },
-      attributes: ['whom_id']
-    });
+    const user = await db.user.findOne({ where: { username: req.params.username } });
 
-    res.send({ follows: follows.map((flw) => flw.user.username) });
+    if (user === null)
+      throw new Error('User not found');
+    
+    const follows = await user.getFollow({ limit: noFollowers })
+      .then(res => res.map(flw => flw.username));
+
+    res.send({ follows });
   } catch (err) {
     return handleError(err, res);
   }
@@ -191,24 +154,31 @@ app.post('/fllws/:username', async (req, res) => {
     updateLatest(req);
     notReqFromSimulator(req);
 
-    const userId = await getUserId(req.params.username);
+    const user = await db.user.findOne({ where: { username: req.params.username } });
+
+    if (user === null)
+      throw new Error('User not found');
 
     const keys = Object.keys(req.body);
 
     if (keys.includes('follow')) {
-      const followUserId = await getUserId(req.body.follow);
+      const followed = await db.user.findOne({ where: { username: req.body.follow } });
 
-      await db.follower.create({ who_id: userId, whom_id: followUserId });
+      if (followed === null)
+        throw new Error('User not found');
+
+      await user.addFollow(followed);
 
       return res.status(204).send();
     }
 
     if (keys.includes('unfollow')) {
-      const unfollowUserId = await getUserId(req.body.unfollow);
+      const unfollowed = await db.user.findOne({ where: { username: req.body.unfollow } });
 
-      await db.follower.destroy({
-        where: { who_id: userId, whom_id: unfollowUserId }
-      });
+      if (unfollowed === null)
+        throw new Error('User not found');
+
+      await user.removeFollow(unfollowed);
 
       return res.status(204).send();
     }
@@ -218,7 +188,7 @@ app.post('/fllws/:username', async (req, res) => {
 });
 
 // It will wipe the database upon each startup
-dbUtils.sequelize.sync({ force: true }).then(async () => {
+db.sequelize.sync({ force: true }).then(async () => {
   app.listen(port, () => {
     console.log(`Server started on port: ${port}`);
   });
