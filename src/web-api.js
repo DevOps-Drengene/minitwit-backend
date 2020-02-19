@@ -2,9 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-const DatabaseHelper = require('./helpers/db');
-
-let db;
+const db = require('./db');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -13,48 +11,18 @@ app.use(cors());
 
 const port = process.env.PORT || 5001;
 
-async function getUserId(username) {
-  try {
-    return await db.get('SELECT user_id as userId FROM user WHERE username = ?', [username]);
-  } catch (err) {
-    throw new Error(err);
-  }
-}
-
-// Being run before each request
-app.use((_req, _res, next) => {
-  db = new DatabaseHelper();
-
-  // Pass on to new handler
-  next();
-});
-
 app.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    const usernameExists = !!(await getUserId(username));
+    if (await db.user.findOne({ where: { username } }))
+      return res.status(400).send({ error: 'The username is already taken' });
 
-    let error;
-    if (!username) error = 'You have to enter a username';
-    else if (!email || !email.includes('@')) error = 'You have to enter a valid email address';
-    else if (!password) error = 'You have to enter a password';
-    else if (usernameExists) error = 'The username is already taken';
-
-    if (error) {
-      return res.status(400).send({ error });
-    }
-
-    const insertQuery = `
-      INSERT INTO user (username, email, pw_hash)
-      VALUES (?, ?, ?)
-    `;
-    const hash = await bcrypt.hash(password, 10);
-    await db.run(insertQuery, [username, email, hash]);
+    await db.user.create({ username, email, password });
 
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).send(err);
+    return res.status(400).send({ error: err.message });
   }
 });
 
@@ -62,22 +30,18 @@ app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const userQuery = `
-      SELECT * FROM user WHERE username = ?
-    `;
-    const user = await db.get(userQuery, [username]);
-    if (!user) {
-      return res.status(404).send({ error: 'User not found' });
-    }
+    const user = await db.user.findOne({ where: { username } })
+      
+    if (!user)
+      return res.status(400).send({ error: 'Unknown user' });
 
-    const match = await bcrypt.compare(password, user.pw_hash);
+    const match = await bcrypt.compare(password, user.password);
 
-    if (!match) {
+    if (!match)
       return res.status(400).send({ error: 'That did not work. Try again.' });
-    }
 
-    // cut out the pw_hash
-    return res.send({ userId: user.user_id, username: user.username, email: user.email });
+    // cut out the password
+    return res.send({ userId: user.id, username: user.username, email: user.email });
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -87,36 +51,69 @@ app.get('/public', async (req, res) => {
   try {
     const { numMessages = 50 } = req.body;
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
+    const messages = await db.message.findAll({
+      where: { flagged: false },
+      order: [['createdAt', 'DESC']],
+      limit: numMessages,
+      include: [db.user]
+    });
 
-    const messages = await db.all(messagesQuery, [numMessages]);
-    return res.send(messages);
+    return res.send(messages.map(msg =>
+      {
+        return {
+          text: msg.text,
+          pubDate: msg.createdAt,
+          userId: msg.user.id,
+          username: msg.user.username,
+          email: msg.user.email
+        }
+      }
+    ));
   } catch (err) {
     return res.status(500).send(err.message);
   }
 });
+
+async function getTimeline(userId, numMessages) {
+  // numMessages defaults to 50
+  numMessages = numMessages || 50;
+
+  const user = await db.user.findByPk(userId);
+
+  const messages = await db.message.findAll({
+    where: {
+      flagged: false,
+      [db.Sequelize.Op.or]: [
+        { userId: await user.getFollow().map(flw => flw.id) },
+        { userId: user.id }
+      ]
+    },
+    limit: numMessages,
+    include: [db.user],
+    order: [['createdAt', 'DESC']],
+  });
+
+  return (messages.map(msg =>
+    {
+      return {
+        text: msg.text,
+        pubDate: msg.createdAt,
+        userId: msg.user.id,
+        username: msg.user.username,
+        email: msg.user.email
+      }
+    }
+  ));
+}
 
 app.get('/timeline/:userId', async (req, res) => {
   try {
     // numMessages defaults to 50
     const { numMessages = 50 } = req.body;
     const { userId } = req.params;
+    
+    const messages = await getTimeline(userId, numMessages);
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
-        user.user_id = ? OR
-        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
-
-    const messages = await db.all(messagesQuery, [userId, userId, numMessages]);
     return res.send(messages);
   } catch (err) {
     return res.status(500).send(err.message);
@@ -128,35 +125,38 @@ app.get('/user/:username/:currentUserId?', async (req, res) => {
     const { username, currentUserId } = req.params;
     const { numMessages = 50 } = req.body;
 
-    const profileUserQuery = `
-      SELECT user.user_id as userId, user.username, user.email
-      FROM user WHERE username = ?
-    `;
+    const profileUser = await db.user.findOne({ where: { username } });
 
-    const profileUser = await db.get(profileUserQuery, [username]);
-
-    if (!profileUser) {
+    if (!profileUser)
       return res.status(404).send({ error: 'User not found' });
-    }
 
-    const followQuery = `
-      SELECT 1 FROM follower
-      WHERE follower.who_id = ? AND follower.whom_id = ?
-   `;
+    const followingRes = await profileUser.getFollow({ where: { id: currentUserId } });
+    const following = !!(followingRes.length);
 
-    const followingRes = await db.get(followQuery, [currentUserId, profileUser.userId]);
-    const following = !!(followingRes);
+    const messages = await profileUser.getMessages({
+      order: [['createdAt', 'DESC']],
+      limit: numMessages
+    });
 
-    const messagesQuery = `
-      SELECT message.author_id, message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE user.user_id = message.author_id AND userID = ?
-      ORDER BY message.pub_date DESC LIMIT ?
-    `;
+    return res.send({
+      profileUser: {
+        userId: profileUser.id,
+        username: profileUser.username,
+        email: profileUser.email
 
-    const messages = await db.all(messagesQuery, [profileUser.userId, numMessages]);
-
-    return res.send({ profileUser, following, messages });
+      },
+      following,
+      messages: messages.map(msg => {
+        return {
+          author_id: profileUser.id,
+          userId: profileUser.id,
+          text: msg.text,
+          pubDate: msg.createdAt,
+          username: profileUser.username,
+          email: profileUser.email
+        }
+      })
+    });
   } catch (err) {
     return res.status(500).send(err.message);
   }
@@ -167,18 +167,17 @@ app.post('/:username/follow', async (req, res) => {
     const { currentUserId } = req.body;
     const { username } = req.params;
 
-    if (!currentUserId) {
+    if (!currentUserId)
       return res.status(401).send({ error: 'currentUserId is missing' });
-    }
 
-    const { userId: whomId } = await getUserId(username);
+    const follower = await db.user.findByPk(currentUserId);
 
-    if (!whomId) {
+    const followed = await db.user.findOne({ where: { username } });
+
+    if (!follower || !followed)
       return res.status(404).send({ error: 'User not found' });
-    }
 
-    const insertQuery = 'INSERT INTO follower (who_id, whom_id) VALUES (?, ?)';
-    await db.run(insertQuery, [currentUserId, whomId]);
+    await follower.addFollow(followed);
 
     return res.status(204).send();
   } catch (err) {
@@ -191,18 +190,17 @@ app.post('/:username/unfollow', async (req, res) => {
     const { currentUserId } = req.body;
     const { username } = req.params;
 
-    if (!currentUserId) {
+    if (!currentUserId)
       return res.status(401).send({ error: 'currentUserId is missing' });
-    }
 
-    const { userId: whomId } = await getUserId(username);
+    const follower = await db.user.findByPk(currentUserId);
 
-    if (!whomId) {
+    const followed = await db.user.findOne({ where: { username } });
+
+    if (!follower || !followed)
       return res.status(404).send({ error: 'User not found' });
-    }
 
-    const deleteQuery = 'DELETE FROM follower WHERE who_id=? AND whom_id=?';
-    await db.run(deleteQuery, [currentUserId, whomId]);
+    await follower.removeFollow(followed);
 
     return res.status(204).send();
   } catch (err) {
@@ -214,27 +212,17 @@ app.post('/add_message', async (req, res) => {
   try {
     const { currentUserId, newMessage } = req.body;
 
-    if (!currentUserId) {
+    if (!currentUserId)
       return res.status(401).send({ error: 'currentUserId is missing' });
-    }
 
-    const insertQuery = `
-      INSERT INTO message (author_id, text, pub_date, flagged)
-      VALUES (?, ?, ?, 0)
-    `;
+    const user = await db.user.findByPk(currentUserId);
 
-    await db.run(insertQuery, [currentUserId, newMessage, Date.now()]);
+    if (!user)
+      throw new Error('User not found');
 
-    const messagesQuery = `
-      SELECT message.text, message.pub_date as pubDate, user.user_id as userId, user.username, user.email
-      FROM message, user
-      WHERE message.flagged = 0 AND message.author_id = user.user_id AND (
-        user.user_id = ? OR
-        user.user_id IN (SELECT whom_id FROM follower WHERE who_id = ?))
-      ORDER BY message.pub_date DESC
-    `;
+    await user.createMessage({ text: newMessage });
 
-    const messages = await db.all(messagesQuery, [currentUserId, currentUserId]);
+    const messages = await getTimeline(currentUserId);
 
     return res.status(201).send(messages);
   } catch (err) {
@@ -242,7 +230,9 @@ app.post('/add_message', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Server started on port: ${port}`);
+// It will wipe the database upon each startup
+db.sequelize.sync().then(async () => {
+  app.listen(port, () => {
+    console.log(`Server started on port: ${port}`);
+  });
 });
