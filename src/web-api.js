@@ -25,8 +25,6 @@ app.post('/register', async (req, res) => {
   try {
     const { username, email, pwd } = req.body;
 
-    updateLatest(req);
-
     if (await db.user.findOne({ where: { username } }))
       throw new Error('The username is already taken');
 
@@ -34,7 +32,7 @@ app.post('/register', async (req, res) => {
 
     return res.status(204).send();
   } catch (err) {
-    return handleError(err, res);
+    return res.status(500).send(err.message);
   }
 });
 
@@ -63,7 +61,7 @@ app.get('/public', async (req, res) => {
   try {
     const { numMessages = 50 } = req.body;
 
-    const messages = await db.messages.findAll({
+    const messages = await db.message.findAll({
       where: { flagged: false },
       order: [['createdAt', 'DESC']],
       limit: numMessages,
@@ -88,7 +86,7 @@ app.get('/public', async (req, res) => {
 
 async function getTimeline(userId, numMessages) {
   // numMessages defaults to 50
-  numMessages ?? 50;
+  numMessages = numMessages || 50;
 
   const user = await db.user.findByPk(userId);
 
@@ -101,6 +99,7 @@ async function getTimeline(userId, numMessages) {
       ]
     },
     limit: numMessages,
+    include: [db.user],
     order: [['createdAt', 'DESC']],
   });
 
@@ -141,8 +140,8 @@ app.get('/user/:username/:currentUserId?', async (req, res) => {
     if (!profileUser)
       return res.status(404).send({ error: 'User not found' });
 
-    const followingRes = await profileUser.getFollow({ where: { id: userId } });
-    const following = !!(followingRes);
+    const followingRes = await profileUser.getFollow({ where: { id: currentUserId } });
+    const following = !!(followingRes.length);
 
     const messages = await profileUser.getMessages({
       order: [['createdAt', 'DESC']],
@@ -241,7 +240,9 @@ app.post('/add_message', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Server started on port: ${port}`);
+// It will wipe the database upon each startup
+db.sequelize.sync().then(async () => {
+  app.listen(port, () => {
+    console.log(`Server started on port: ${port}`);
+  });
 });
